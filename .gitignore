@@ -1,0 +1,9 @@
+/wandb/
+/tmp/
+/test_data/
+/data/psd's/
+/checkpoints/
+/.idea/
+/.__pycache__/
+/Models/
+/data/

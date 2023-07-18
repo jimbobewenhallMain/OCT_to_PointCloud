@@ -1,0 +1,9 @@
+segmentation_models_pytorch
+tqdm~=4.65.0
+wandb~=0.14.0
+numpy~=1.23.5
+Pillow~=9.4.0
+pyvista~=0.38.5
+scipy~=1.10.1
+matplotlib~=3.7.1
+scikit-image~=0.19.3
