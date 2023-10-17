@@ -81,7 +81,7 @@ if __name__ == '__main__':
     depth_mm = args.depth
 
     # Load model into GPU and set to evaluation mode
-    Unet = UnetPlusPlus(in_channels=3, classes=2, encoder_name=args.encoder)
+    Unet = UnetPlusPlus(in_channels=3, classes=2, encoder_name=args.encoder, encoder_weights=None)
     torch_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     Unet.to(device=torch_device)
 
@@ -168,7 +168,8 @@ if __name__ == '__main__':
 
                 # Remove small areas of white pixels and convert to binary mask
                 current_mask = morphology.remove_small_objects(labelled_mask, size)
-                current_mask = np.where(current_mask > 0, 255, 0)
+
+        current_mask = np.where(current_mask > 0, 255, 0)
 
         current_mask = current_mask.astype(np.uint8) # Convert mask to unsigned 8-bit integer
 
