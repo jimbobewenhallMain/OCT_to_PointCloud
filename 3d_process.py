@@ -6,12 +6,13 @@ import numpy as np
 import pyvista as pv
 import torch
 import torch.nn.functional as functional
-from PIL import Image
+from PIL import Image, ImageOps
 from PIL.ImageSequence import Iterator
 from scipy.ndimage import distance_transform_edt
 from skimage import measure, morphology
 from segmentation_models_pytorch import UnetPlusPlus
 from tqdm import tqdm
+import pywt
 
 
 def get_args():
@@ -45,7 +46,7 @@ def round_to_multiple(value, multiple):
     return int(multiple * round(float(value) / multiple))
 
 
-def normalise_image(image, image_width, image_height):
+def normalise_image(image): #, image_width, image_height):
     """
     Normalise image to 0-255 range, convert to RGB and resize to image_width x image_height
 
@@ -58,13 +59,76 @@ def normalise_image(image, image_width, image_height):
     :return: Normalised image
     """
 
-    image = (image - np.min(image)) * (255 / (np.max(image) - np.min(image)))
+    image = image / image.max()
+
+    # gamma = 10
+    # order = 4
+    # wname = 'db20'
+    # reps = 2
+    #
+    # O = 3
+    #
+    # for r in range(reps):
+    #     image_filtered = SuppWaveletFFT(image, gamma, order, wname, O)
+    #     image = np.minimum(image_filtered, image)
+    #
+    # image = image.astype(float)
+    image = image * 255
+
     image = Image.fromarray(image)
 
     image = image.convert('RGB')
-    image = image.resize((image_width, image_height), resample=Image.BILINEAR)
+
+    width, height = image.size
+    if width > 1024 or height > 1024:
+        image = image.resize((1024 if width > 1024 else width, 1024 if height > 1024 else height), resample=Image.BILINEAR)
+
+    width, height = image.size
+    if width < 1024:
+        leftright = (1024 - width)
+        left = leftright // 2
+        right = leftright - left
+        image = ImageOps.expand(image, border=(left, 0, right, 0), fill=0)
+    if height < 1024:
+        topbottom = (1024 - height)
+        top = topbottom // 2
+        bottom = topbottom - top
+        image = ImageOps.expand(image, border=(0, top, 0, bottom), fill=0)
 
     return image
+
+
+def SuppWaveletFFT(img, gamma, order, wname, O):
+    detail = img.astype(np.float32)
+    y1, x1 = detail.shape
+
+    horiz, verti, diag = [], [], []
+    for _ in range(order):
+        detail, (h, v, d) = pywt.dwt2(detail, wname)
+        horiz.append(h)
+        verti.append(v)
+        diag.append(d)
+
+    for n in range(order):
+        if O in [1, 3]:
+            fhoriz = np.fft.fftshift(np.fft.fft(horiz[n], axis=1), axes=1)
+            y, x = fhoriz.shape
+            hmask = (1 - np.exp(-np.arange(-x // 2, x // 2).astype(np.float32) ** 2 / gamma))
+            fhoriz = fhoriz * hmask
+            horiz[n] = np.fft.ifft(np.fft.ifftshift(fhoriz, axes=1), axis=1)
+
+        if O in [2, 3]:
+            fverti = np.fft.fftshift(np.fft.fft(verti[n], axis=0), axes=0)
+            y, x = fverti.shape
+            vmask = (1 - np.exp(-np.arange(-y // 2, y // 2).astype(np.float32) ** 2 / gamma))
+            fverti = fverti * vmask[:, np.newaxis]
+            verti[n] = np.fft.ifft(np.fft.ifftshift(fverti, axes=0), axis=0)
+
+    for n in reversed(range(order)):
+        detail = detail[:horiz[n].shape[0], :horiz[n].shape[1]]
+        detail = pywt.idwt2((detail, (horiz[n], verti[n], diag[n])), wname)
+
+    return detail[:y1, :x1]
 
 
 if __name__ == '__main__':
@@ -91,38 +155,34 @@ if __name__ == '__main__':
     Unet.load_state_dict(state_dict)
     Unet.eval()
 
-    # Sizes of image for prediction
-    w, h = 895, 483  # Restriction from training data can be changed to image width and height in future
-    resized_width, resized_height = round_to_multiple(int(scale_factor * w), 32), \
-        round_to_multiple(int(scale_factor * h), 32)
-
     # Load image and create iterator
-    if filename.endswith('.tif'):
+    if filename.endswith('.tif') or filename.endswith('.tiff'):
         tiff_image = Image.open(filename)
         iterator = tqdm(Iterator(tiff_image), total=tiff_image.n_frames)
-        filetype = 'tif'
+        istiff = True
     else:
         names = os.listdir(filename)
         names.sort(key=lambda f: int(f.split('M')[1].split('.')[0]))
         iterator = tqdm(names)
         directory = filename
-        filetype = 'png'
+        istiff = False
 
     predicted_masks = [] # List of predicted masks
     for i, original_image in enumerate(iterator):
         iterator.set_description(f'Processing slice: {i:04}') # Update progress bar
 
         # Get current slice from iterator
-        if filetype == 'tif':
+        if istiff:
             current = original_image.tell()
             original_image_copy = original_image.copy()
+            # original_image_copy = original_image_copy.convert('L') # Uncomment if using RGB tiff
             original_image.seek(current)
         else:
             original_image_copy = Image.open(os.path.join(directory, original_image))
             original_image_copy = original_image_copy.convert('L')
 
         # Normalise the image
-        current_mask = normalise_image(original_image_copy, resized_width, resized_height)
+        current_mask = normalise_image(np.array(original_image_copy))
         current_mask = np.array(current_mask)
 
         # Convert to tensor and move to GPU
