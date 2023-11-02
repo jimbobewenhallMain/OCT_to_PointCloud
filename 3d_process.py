@@ -11,22 +11,182 @@ from PIL.ImageSequence import Iterator
 from scipy.ndimage import distance_transform_edt
 from skimage import measure, morphology
 from segmentation_models_pytorch import UnetPlusPlus
+from networks.UnetThreePlus import UNet_3Plus
+from networks.Attention_Unets import R2AttU_Net, R2U_Net, AttU_Net
+from networks.UCTransNet import UCTransNet
+from networks.Unext import UNext, UNext_S
+
+import textwrap
 from tqdm import tqdm
 import pywt
+import math
 
 
 def get_args():
-    parser = argparse.ArgumentParser(description='Convert image sequence to 3D point cloud')
-    parser.add_argument('--model_file', '-m', metavar='M', type=str, default='', help='Path to model file')
-    parser.add_argument('--encoder', '-e', metavar='E', type=str, default='resnet152', help='Encoder weights for model')
-    parser.add_argument('--image_file', '-i', metavar='I', type=str, default='', help='Path to multi-page tif file')
-    parser.add_argument('--output_file', '-o', metavar='O', type=str, default='', help='Path to output .ply file')
-    parser.add_argument('--image_scale', '-is', metavar='IS', type=float, default=1.0, help='Image scale')
-    parser.add_argument('--width', '-w', metavar='W', type=int, default=6, help='Image width in mm')
-    parser.add_argument('--depth', '-d', metavar='D', type=float, default=6.0, help='Scan depth in mm')
-    parser.add_argument('--interpolate', '-in', metavar='IN', type=bool, default=True, help='Interpolate slices')
-    parser.add_argument('--slices', '-s', metavar='S', type=int, default=8, help='Number of interpolated slices')
-    parser.add_argument('--post_process', '-p', metavar='P', action=argparse.BooleanOptionalAction)
+    parser = argparse.ArgumentParser(description='Convert image sequence to 3D point cloud',
+                                     formatter_class=argparse.RawTextHelpFormatter,
+                                     fromfile_prefix_chars='+',
+                                     epilog='Alternatively specify configuration file containing arguments using +')
+    parser._action_groups.pop()
+
+    required = parser.add_argument_group('Required arguments')
+    optional = parser.add_argument_group('Optional arguments')
+    plusplus = parser.add_argument_group('Unet++ arguments')
+    unet3plus = parser.add_argument_group('UNet_3Plus arguments')
+    r2attu = parser.add_argument_group('R2AttU_Net arguments')
+    r2u = parser.add_argument_group('R2U_Net arguments')
+    unext = parser.add_argument_group('UNext arguments')
+    unext_s = parser.add_argument_group('UNext_S arguments')
+
+    required.add_argument('--model_file', '-m', metavar='M', type=str, help='Path to model file', required=True)
+    required.add_argument('--image_file', '-i', metavar='I', type=str, help='Path to multi-page tif file', required=True)
+    required.add_argument('--output_file', '-o', metavar='O', type=str, help='Path to output .ply file', required=True)
+    required.add_argument('--width', '-w', metavar='W', type=int, help='Image width in mm', required=True)
+    required.add_argument('--depth', '-d', metavar='D', type=float, help='Scan depth in mm', required=True)
+    required.add_argument('--network', '-n', metavar='N', type=str,
+                          help=textwrap.dedent('''\
+                          Network to use: 
+                            - UnetPlusPlus
+                            - UNet_3Plus
+                            - R2AttU_Net
+                            - R2U_Net
+                            - AttU_Net
+                            - UCTransNet
+                            - UNext
+                            - UNext_S
+                            '''),
+                          choices=['UnetPlusPlus', 'UNet_3Plus', 'R2AttU_Net', 'R2U_Net', 'AttU_Net', 'UCTransNet', 'UNext', 'UNext_S'],
+                          required=True)
+
+    optional.add_argument('--image_scale', '-is', metavar='IS', type=float, default=1.0,
+                          help=textwrap.dedent('''\
+                                                Image scale:
+                                                  Default: %(default)s)'''
+                                               ))
+    optional.add_argument('--interpolate', '-in', metavar='IN', action=argparse.BooleanOptionalAction,
+                          help=textwrap.dedent('''\
+                                                Interpolate between slices:
+                                                  Default: False'''
+                                               ))
+    optional.add_argument('--slices', '-s', metavar='S', type=int, default=8,
+                          help=textwrap.dedent('''\
+                                                Number of interpolated slices:
+                                                  Default: %(default)s)'''
+                                               ))
+    optional.add_argument('--post_process', '-p', metavar='P', action=argparse.BooleanOptionalAction,
+                          help=textwrap.dedent('''\
+                                                Post-process segmented masks:
+                                                  Default: False'''
+                                               ))
+    optional.add_argument('--wavelet_filter', '-wf', metavar='WF', action=argparse.BooleanOptionalAction,
+                          help=textwrap.dedent('''\
+                                                Apply wavelet filter:
+                                                  Default: False'''
+                                               ))
+
+    plusplus.add_argument('--encoder', '-e', metavar='E', type=str, default='resnet34',
+                          help=textwrap.dedent('''\
+                                                Encoder backbone:
+                                                  Default: %(default)s'''
+                                               ))
+    plusplus.add_argument('--encoder_depth', '-ed', metavar='ED', type=int, default=5, choices=[3, 4, 5],
+                          help=textwrap.dedent('''\
+                                                Encoder stages:
+                                                  - 3
+                                                  - 4
+                                                  - 5
+                                                  Default: %(default)s'''
+                                               ))
+    plusplus.add_argument('--decoder_channels', '-dc', metavar='DC', type=int, nargs=5, default=[256, 128, 64, 32, 16],
+                          help=textwrap.dedent('''\
+                                                Convolution in channels:
+                                                  Default: %(default)s'''
+                                               ))
+    bn_arg = plusplus.add_argument('--batchnorm', '-b', metavar='B', action=argparse.BooleanOptionalAction,
+                                   help=textwrap.dedent('''\
+                                                        Use BatchNorm2d layer:
+                                                          Default: False'''
+                                                        ))
+    plusplus.add_argument('--attention_type', '-at', metavar='AT', type=str, default=None,
+                          help=textwrap.dedent('''\
+                                                Attention module to use:
+                                                  -scse
+                                                  Default: %(default)s'''
+                                               ))
+    plusplus.add_argument('--activation', '-AC', metavar='AC', type=str, default=None,
+                          choices=['sigmoid', 'softmax', 'logsoftmax', 'tanh', 'identity'],
+                          help=textwrap.dedent('''\
+                                                Activation function:
+                                                  - sigmoid
+                                                  - softmax
+                                                  - logsoftmax
+                                                  - tanh
+                                                  - identity
+                                                  Default: %(default)s'''
+                                               ))
+
+    unet3plus.add_argument('--feature_scale', '-fs', metavar='FS', type=int, default=4,
+                           help=textwrap.dedent('''\
+                                                Feature scale:
+                                                  Default: %(default)s'''
+                                                ))
+    unet3plus.add_argument('--deconv', '-de', metavar='DE', action=argparse.BooleanOptionalAction,
+                           help=textwrap.dedent('''\
+                                                Use deconvolution:
+                                                  (Default: False)'''
+                                                ))
+    unet3plus._group_actions.append(bn_arg)
+
+    cd_arg = r2attu.add_argument('--convolution_depth', '-cd', metavar='CD', type=int, default=2,
+                                 help=textwrap.dedent('''\
+                                                        Convolution depth:
+                                                          Default: %(default)s'''
+                                                      ))
+
+    r2u._group_actions.append(cd_arg)
+
+    unext.add_argument('--embed-dims', '-edm', metavar='EDM', type=int, nargs=3, default=[128, 160, 256],
+                       help=textwrap.dedent('''\
+                                            Embedding dimensions:
+                                              Default: %(default)s'''
+                                            ))
+    unext.add_argument('--num_heads', '-nh', metavar='NH', type=int, nargs=4, default=[1, 2, 4, 8],
+                       help=textwrap.dedent('''\
+                                            Number of attention heads:
+                                              Default: %(default)s'''
+                                            ))
+    unext.add_argument('--mlp_ratio', '-mr', metavar='MR', type=int, nargs=4, default=[4, 4, 4, 4],
+                       help=textwrap.dedent('''\
+                                            MLP ratio: 
+                                              Default: %(default)s'''
+                                            ))
+    unext.add_argument('--drop_path_rate', '-dpr', metavar='DPR', type=float, default=0.2,
+                       help=textwrap.dedent('''\
+                                            Drop path rate:
+                                              Default: %(default)s'''
+                                            ))
+    unext.add_argument('--drop_rate', '-dr', metavar='DR', type=float, default=0.2,
+                       help=textwrap.dedent('''\
+                                            Drop rate:
+                                              Default: %(default)s'''
+                                            ))
+    unext.add_argument('--attn_drop_rate', '-adr', metavar='ADR', type=float, default=0.2,
+                       help=textwrap.dedent('''\
+                                            Attention drop rate:
+                                              Default: %(default)s'''
+                                            ))
+    unext.add_argument('--depths', '-dp', metavar='DP', type=int, nargs=4, default=[2, 2, 2, 2],
+                       help=textwrap.dedent('''\
+                                            Number of layers in each stage:
+                                              Default: %(default)s'''
+                                            ))
+    unext.add_argument('--sr_ratios', '-sr', metavar='SR', type=int, nargs=4, default=[8, 4, 2, 1],
+                       help=textwrap.dedent('''\
+                                            Spatial reduction ratios:
+                                              Default: %(default)s'''
+                                            ))
+
+    unext_s._group_actions = unext._group_actions.copy()
 
     return parser.parse_args()
 
@@ -46,33 +206,26 @@ def round_to_multiple(value, multiple):
     return int(multiple * round(float(value) / multiple))
 
 
-def normalise_image(image): #, image_width, image_height):
+def normalise_image(image, toFilter):
     """
     Normalise image to 0-255 range, convert to RGB and resize to image_width x image_height
 
     :param image: Image to normalise
     :type image: np.ndarray
-    :param image_width: Width of output image
-    :type image_width: int
-    :param image_height: Height of output image
-    :type image_height: int
+    :param toFilter: Whether to apply wavelet filter
+    :type toFilter: bool
     :return: Normalised image
     """
 
     image = image / image.max()
 
-    # gamma = 10
-    # order = 4
-    # wname = 'db20'
-    # reps = 2
-    #
-    # O = 3
-    #
-    # for r in range(reps):
-    #     image_filtered = SuppWaveletFFT(image, gamma, order, wname, O)
-    #     image = np.minimum(image_filtered, image)
-    #
-    # image = image.astype(float)
+    if toFilter:
+        for r in range(2):
+            image_filtered = SuppWaveletFFT(image, 10, 4, 'db20', 3)
+            image = np.minimum(image_filtered, image)
+
+        image = image.astype(float)
+
     image = image * 255
 
     image = Image.fromarray(image)
@@ -80,8 +233,23 @@ def normalise_image(image): #, image_width, image_height):
     image = image.convert('RGB')
 
     width, height = image.size
+    width_scale = 1
+    height_scale = 1
+    if width > 1024:
+        #width_scale = width / 1024
+        width_scale = 1024 / width
+    if height > 1024:
+        #height_scale = height / 1024
+        height_scale = 1024 / height
+
     if width > 1024 or height > 1024:
-        image = image.resize((1024 if width > 1024 else width, 1024 if height > 1024 else height), resample=Image.BILINEAR)
+        scale = min(width_scale, height_scale)
+
+        image = image.resize(
+            (math.floor(width * scale), math.floor(height * scale)), resample=Image.BILINEAR
+        )
+
+    scale = 1024 / width
 
     width, height = image.size
     if width < 1024:
@@ -95,7 +263,7 @@ def normalise_image(image): #, image_width, image_height):
         bottom = topbottom - top
         image = ImageOps.expand(image, border=(0, top, 0, bottom), fill=0)
 
-    return image
+    return image, scale
 
 
 def SuppWaveletFFT(img, gamma, order, wname, O):
@@ -145,7 +313,31 @@ if __name__ == '__main__':
     depth_mm = args.depth
 
     # Load model into GPU and set to evaluation mode
-    Unet = UnetPlusPlus(in_channels=3, classes=2, encoder_name=args.encoder, encoder_weights=None)
+    if args.network == 'UnetPlusPlus':
+        Unet = UnetPlusPlus(encoder_name=args.encoder, encoder_depth=args.encoder_depth, encoder_weights=None,
+                            decoder_channels=args.decoder_channels, decoder_use_batchnorm=args.batchnorm,
+                            decoder_attention_type=args.attention_type, in_channels=3, classes=2,
+                            activation=args.activation)
+    elif args.network == 'UNet_3Plus':
+        Unet = UNet_3Plus(in_channels=3, n_classes=2, feature_scale=args.feature_scale, is_deconv=args.deconv,
+                          is_batchnorm=args.batchnorm)
+    elif args.network == 'R2AttU_Net':
+        Unet = R2AttU_Net(img_ch=3, output_ch=2, t=args.convolution_depth)
+    elif args.network == 'R2U_Net':
+        Unet = R2U_Net(img_ch=3, output_ch=2, t=args.convolution_depth)
+    elif args.network == 'AttU_Net':
+        Unet = AttU_Net(img_ch=3, output_ch=2)
+    elif args.network == 'UCTransNet':
+        Unet = UCTransNet(n_channels=3, n_classes=2)
+    elif args.network == 'UNext':
+        Unet = UNext(num_classes=2, in_channels=3, embed_dims=args.embed_dims, num_heads=args.num_heads,
+                     mlp_ratios=args.mlp_ratio, attn_drop_rate=args.attn_drop_rate, drop_path_rate=args.drop_path_rate,
+                     drop_rate=args.drop_rate, depths=args.depths, sr_ratios=args.sr_ratios)
+    else:
+        Unet = UNext_S(num_classes=2, in_channels=3, embed_dims=args.embed_dims, num_heads=args.num_heads,
+                       mlp_ratios=args.mlp_ratio, attn_drop_rate=args.attn_drop_rate, drop_path_rate=args.drop_path_rate,
+                       drop_rate=args.drop_rate, depths=args.depths, sr_ratios=args.sr_ratios)
+
     torch_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     Unet.to(device=torch_device)
 
@@ -168,6 +360,7 @@ if __name__ == '__main__':
         istiff = False
 
     predicted_masks = [] # List of predicted masks
+    original_scale = 1
     for i, original_image in enumerate(iterator):
         iterator.set_description(f'Processing slice: {i:04}') # Update progress bar
 
@@ -177,12 +370,21 @@ if __name__ == '__main__':
             original_image_copy = original_image.copy()
             # original_image_copy = original_image_copy.convert('L') # Uncomment if using RGB tiff
             original_image.seek(current)
+
+            original_image_copy = np.array(original_image_copy)
+
+            # If original image is RGB, convert to grayscale
+            if len(original_image_copy.shape) > 2:
+                original_image_copy = original_image_copy[:, :, 0]
+
+            original_image_copy = original_image_copy / original_image_copy.max()
+
         else:
             original_image_copy = Image.open(os.path.join(directory, original_image))
             original_image_copy = original_image_copy.convert('L')
 
         # Normalise the image
-        current_mask = normalise_image(np.array(original_image_copy))
+        current_mask, original_scale = normalise_image(np.array(original_image_copy), args.wavelet_filter)
         current_mask = np.array(current_mask)
 
         # Convert to tensor and move to GPU
@@ -198,7 +400,7 @@ if __name__ == '__main__':
         # Predict mask
         with torch.no_grad():
             Unet_mask = Unet(current_mask).cpu()
-            Unet_mask = functional.interpolate(Unet_mask, (original_image_copy.size[1], original_image_copy.size[0]), mode='bilinear')
+            Unet_mask = functional.interpolate(Unet_mask, (1024, 1024), mode='bilinear')
             Unet_mask = Unet_mask.argmax(dim=1)
 
         Unet_mask = Unet_mask[0].long().squeeze().numpy()
@@ -240,44 +442,50 @@ if __name__ == '__main__':
     del state_dict
     del mask_values
 
-    interpolation_pbar = tqdm(predicted_masks)
+    toInterpolate = args.interpolate # To be moved to args
+    if toInterpolate:
+        interpolation_pbar = tqdm(predicted_masks)
 
-    interpolated_masks = [] # List of interpolated masks
+        interpolated_masks = [] # List of interpolated masks
 
-    # Generate weights for interpolation
-    x_values = np.arange(1, num_slices + 1)
-    weights = 1 - x_values / (num_slices + 1)
+        # Generate weights for interpolation
+        x_values = np.arange(1, num_slices + 1)
+        weights = 1 - x_values / (num_slices + 1)
 
-    for ind, current_image in enumerate(interpolation_pbar):
-        interpolation_pbar.set_description(f'Interpolating slice: {ind:04}') # Update progress bar
+        for ind, current_image in enumerate(interpolation_pbar):
+            interpolation_pbar.set_description(f'Interpolating slice: {ind:04}') # Update progress bar
 
-        interpolated_masks.append(current_image) # Add current mask to list
+            interpolated_masks.append(current_image) # Add current mask to list
 
-        # If current mask is the last mask, break out of loop
-        try:
-            next_im = predicted_masks[ind + 1]
-        except IndexError:
-            break
+            # If current mask is the last mask, break out of loop
+            try:
+                next_im = predicted_masks[ind + 1]
+            except IndexError:
+                break
 
-        # Calculate borders of current and next mask
-        d1 = distance_transform_edt(current_image) - distance_transform_edt(~current_image)
-        d2 = distance_transform_edt(next_im) - distance_transform_edt(~next_im)
+            # Calculate borders of current and next mask
+            d1 = distance_transform_edt(current_image) - distance_transform_edt(~current_image)
+            d2 = distance_transform_edt(next_im) - distance_transform_edt(~next_im)
 
-        # For each weight, calculate the interpolated mask
-        interpolated_image = ((weights[:, None, None] * d1) + ((1 - weights[:, None, None]) * d2))
-        interpolated_image = np.where(interpolated_image > 0, 255, 0)
+            # For each weight, calculate the interpolated mask
+            interpolated_image = ((weights[:, None, None] * d1) + ((1 - weights[:, None, None]) * d2))
+            interpolated_image = np.where(interpolated_image > 0, 255, 0)
 
-        # Add interpolated mask to list
-        interpolated_masks.extend(interpolated_image)
+            # Add interpolated mask to list
+            interpolated_masks.extend(interpolated_image)
+
+        del x_values
+        del weights
+        del interpolation_pbar
+
+    else:
+        interpolated_masks = predicted_masks
 
     del predicted_masks
-    del x_values
-    del weights
-    del interpolation_pbar
 
     # Calculate the scale of the image and the gap between slices
     mask_height, mask_width = interpolated_masks[0].shape
-    image_scale = mask_width / image_width_mm
+    image_scale = 1024 / (image_width_mm * original_scale)
     slice_gap = (depth_mm * image_scale) / (len(interpolated_masks) - 1)
 
     current_depth = 0 # Current depth of slice

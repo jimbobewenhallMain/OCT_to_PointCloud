@@ -1,0 +1,8 @@
+--image_scale
+1
+--interpolate
+--slices
+4
+--post_process
+--network
+UCTransNet

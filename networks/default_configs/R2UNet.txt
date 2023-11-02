@@ -1,0 +1,10 @@
+--image_scale
+1
+--interpolate
+--slices
+4
+--post_process
+--network
+R2U_Net
+--convolution_depth
+2
