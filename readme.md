@@ -89,25 +89,146 @@ To create a 3d model from a single image and save it:
 
 ```console
 > python 3d_process.py -h
-usage: 3d_process.py [-h] [--model_file M] [--encoder E] [--image_file I] [--output_file O] [--image_scale IS] [--width W] [--depth D] [--interpolate IN] [--slices S] [--post_process | --no-post_process | -p]
+usage: 3d_process.py [-h] --model_file M --image_file I --output_file O --width W --depth D --network N [--image_scale IS] [--interpolate | --no-interpolate | -in] [--slices S] [--post_process | --no-post_process | -p]
+                     [--wavelet_filter | --no-wavelet_filter | -wf] [--encoder E] [--encoder_depth ED] [--decoder_channels DC DC DC DC DC] [--batchnorm | --no-batchnorm | -b] [--attention_type AT] [--activation AC]
+                     [--feature_scale FS] [--deconv | --no-deconv | -de] [--convolution_depth CD] [--embed_dims EDM EDM EDM] [--num_heads NH NH NH NH] [--mlp_ratio MR MR MR MR] [--drop_path_rate DPR] [--drop_rate DR]
+                     [--attn_drop_rate ADR] [--depths DP DP DP DP] [--sr_ratios SR SR SR SR]
 
 Convert image sequence to 3D point cloud
 
-options:
-  -h, --help            show this help message and exit
+Required arguments:
   --model_file M, -m M  Path to model file
-  --encoder E, -e E     Encoder weights for model
   --image_file I, -i I  Path to multi-page tif file
   --output_file O, -o O
                         Path to output .ply file
-  --image_scale IS, -is IS
-                        Image scale
   --width W, -w W       Image width in mm
   --depth D, -d D       Scan depth in mm
-  --interpolate IN, -in IN
-                        Interpolate slices
-  --slices S, -s S      Number of interpolated slices
+  --network N, -n N     Network to use: 
+                          - UnetPlusPlus
+                          - UNet_3Plus
+                          - R2AttU_Net
+                          - R2U_Net
+                          - AttU_Net
+                          - UCTransNet
+                          - UNext
+                          - UNext_S
+
+Optional arguments:
+  --image_scale IS, -is IS
+                        Image scale:
+                          Default: 1.0)
+  --interpolate, --no-interpolate, -in
+                        Interpolate between slices:
+                          Default: False
+  --slices S, -s S      Number of interpolated slices:
+                          Default: 8)
   --post_process, --no-post_process, -p
+                        Post-process segmented masks:
+                          Default: False
+  --wavelet_filter, --no-wavelet_filter, -wf
+                        Apply wavelet filter:
+                          Default: False
+
+Unet++ arguments:
+  --encoder E, -e E     Encoder backbone:
+                          Default: resnet34
+  --encoder_depth ED, -ed ED
+                        Encoder stages:
+                          - 3
+                          - 4
+                          - 5
+                          Default: 5
+  --decoder_channels DC DC DC DC DC, -dc DC DC DC DC DC
+                        Convolution in channels:
+                          Default: [256, 128, 64, 32, 16]
+  --batchnorm, --no-batchnorm, -b
+                        Use BatchNorm2d layer:
+                          Default: False
+  --attention_type AT, -at AT
+                        Attention module to use:
+                          -scse
+                          Default: None
+  --activation AC, -AC AC
+                        Activation function:
+                          - sigmoid
+                          - softmax
+                          - logsoftmax
+                          - tanh
+                          - identity
+                          Default: None
+
+UNet_3Plus arguments:
+  --feature_scale FS, -fs FS
+                        Feature scale:
+                          Default: 4
+  --deconv, --no-deconv, -de
+                        Use deconvolution:
+                          (Default: False)
+  --batchnorm, --no-batchnorm, -b
+                        Use BatchNorm2d layer:
+                          Default: False
+
+R2AttU_Net arguments:
+  --convolution_depth CD, -cd CD
+                        Convolution depth:
+                          Default: 2
+
+R2U_Net arguments:
+  --convolution_depth CD, -cd CD
+                        Convolution depth:
+                          Default: 2
+
+UNext arguments:
+  --embed_dims EDM EDM EDM, -edm EDM EDM EDM
+                        Embedding dimensions:
+                          Default: [128, 160, 256]
+  --num_heads NH NH NH NH, -nh NH NH NH NH
+                        Number of attention heads:
+                          Default: [1, 2, 4, 8]
+  --mlp_ratio MR MR MR MR, -mr MR MR MR MR
+                        MLP ratio:
+                          Default: [4, 4, 4, 4]
+  --drop_path_rate DPR, -dpr DPR
+                        Drop path rate:
+                          Default: 0.2
+  --drop_rate DR, -dr DR
+                        Drop rate:
+                          Default: 0.2
+  --attn_drop_rate ADR, -adr ADR
+                        Attention drop rate:
+                          Default: 0.2
+  --depths DP DP DP DP, -dp DP DP DP DP
+                        Number of layers in each stage:
+                          Default: [2, 2, 2, 2]
+  --sr_ratios SR SR SR SR, -sr SR SR SR SR
+                        Spatial reduction ratios:
+                          Default: [8, 4, 2, 1]
+
+UNext_S arguments:
+  --embed_dims EDM EDM EDM, -edm EDM EDM EDM
+                        Embedding dimensions:
+                          Default: [128, 160, 256]
+  --num_heads NH NH NH NH, -nh NH NH NH NH
+                        Number of attention heads:
+                          Default: [1, 2, 4, 8]
+  --mlp_ratio MR MR MR MR, -mr MR MR MR MR
+                        MLP ratio:
+                          Default: [4, 4, 4, 4]
+  --drop_path_rate DPR, -dpr DPR
+                        Drop path rate:
+                          Default: 0.2
+  --drop_rate DR, -dr DR
+                        Drop rate:
+                          Default: 0.2
+  --attn_drop_rate ADR, -adr ADR
+                        Attention drop rate:
+                          Default: 0.2
+  --depths DP DP DP DP, -dp DP DP DP DP
+                        Number of layers in each stage:
+                          Default: [2, 2, 2, 2]
+  --sr_ratios SR SR SR SR, -sr SR SR SR SR
+                        Spatial reduction ratios:
+                          Default: [8, 4, 2, 1]
 ```
 
 ### Notes:

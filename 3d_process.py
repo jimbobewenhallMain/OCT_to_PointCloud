@@ -145,7 +145,7 @@ def get_args():
 
     r2u._group_actions.append(cd_arg)
 
-    unext.add_argument('--embed-dims', '-edm', metavar='EDM', type=int, nargs=3, default=[128, 160, 256],
+    unext.add_argument('--embed_dims', '-edm', metavar='EDM', type=int, nargs=3, default=[128, 160, 256],
                        help=textwrap.dedent('''\
                                             Embedding dimensions:
                                               Default: %(default)s'''
