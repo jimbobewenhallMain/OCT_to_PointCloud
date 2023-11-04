@@ -1,9 +1,2 @@
-/wandb/
-/checkpoints/
-/.idea/
-/.__pycache__/
-/Models/
-/Trained_models/
-/Images/
-/CPs/
-/SC_training_set/
+# created by virtualenv automatically
+*

@@ -28,11 +28,6 @@ class AverageMeter(object):
         self.avg = self.sum / self.count
 
 
-def conv1x1(in_planes: int, out_planes: int, stride: int = 1) -> nn.Conv2d:
-    """1x1 convolution"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=1, bias=False)
-
-
 class shiftmlp(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0., shift_size=5):
         super().__init__()
