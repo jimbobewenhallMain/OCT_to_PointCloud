@@ -15,6 +15,7 @@ from networks.UnetThreePlus import UNet_3Plus
 from networks.Attention_Unets import R2AttU_Net, R2U_Net, AttU_Net
 from networks.UCTransNet import UCTransNet
 from networks.Unext import UNext, UNext_S
+from networks.Atten_Unext import AttenUNext
 
 import textwrap
 from tqdm import tqdm
@@ -54,8 +55,10 @@ def get_args():
                             - UCTransNet
                             - UNext
                             - UNext_S
+                            - AttenUNext
                             '''),
-                          choices=['UnetPlusPlus', 'UNet_3Plus', 'R2AttU_Net', 'R2U_Net', 'AttU_Net', 'UCTransNet', 'UNext', 'UNext_S'],
+                          choices=['UnetPlusPlus', 'UNet_3Plus', 'R2AttU_Net', 'R2U_Net', 'AttU_Net', 'UCTransNet',
+                                   'UNext', 'UNext_S', 'AttenUNext'],
                           required=True)
 
     optional.add_argument('--image_scale', '-is', metavar='IS', type=float, default=1.0,
@@ -333,6 +336,8 @@ if __name__ == '__main__':
         Unet = UNext(num_classes=2, in_channels=3, embed_dims=args.embed_dims, num_heads=args.num_heads,
                      mlp_ratios=args.mlp_ratio, attn_drop_rate=args.attn_drop_rate, drop_path_rate=args.drop_path_rate,
                      drop_rate=args.drop_rate, depths=args.depths, sr_ratios=args.sr_ratios)
+    elif args.network == 'AttenUNext':
+        Unet = AttenUNext(num_classes=2)
     else:
         Unet = UNext_S(num_classes=2, in_channels=3, embed_dims=args.embed_dims, num_heads=args.num_heads,
                        mlp_ratios=args.mlp_ratio, attn_drop_rate=args.attn_drop_rate, drop_path_rate=args.drop_path_rate,

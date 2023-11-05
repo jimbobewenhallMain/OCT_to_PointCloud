@@ -234,6 +234,8 @@ class AttenUNext(nn.Module):
 
         self.decoder1 = nn.Conv2d(256, 160, 3, stride=1, padding=1)
         self.dbn1 = nn.BatchNorm2d(160)
+        self.att1 = Attention_block(F_g=160, F_l=160, F_int=80)
+        self.Up_conv1 = conv_block(ch_in=320, ch_out=160)
 
         self.decoder2 = nn.Conv2d(160, 128, 3, stride=1, padding=1)
         self.dbn2 = nn.BatchNorm2d(128)
@@ -298,6 +300,10 @@ class AttenUNext(nn.Module):
 
         d5 = F.relu(F.interpolate(self.dbn1(self.decoder1(x5)), scale_factor=(2, 2), mode='bilinear'))
 
+        x4 = self.att1(g=d5, x=x4)
+        d5 = torch.cat((x4, d5), dim=1)
+        d5 = self.Up_conv1(d5)
+
         d5 = torch.add(d5, x4)
         _, _, H, W = d5.shape
         d5 = d5.flatten(2).transpose(1, 2)
@@ -312,7 +318,9 @@ class AttenUNext(nn.Module):
 
         d4 = self.dnorm3(d5)
         d4 = d4.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
+
         d4 = F.relu(F.interpolate(self.dbn2(self.decoder2(d4)), scale_factor=(2, 2), mode='bilinear'))
+
         x3 = self.att2(g=d4, x=x3)
         d4 = torch.cat((x3, d4), dim=1)
         d4 = self.Up_conv2(d4)
@@ -337,6 +345,7 @@ class AttenUNext(nn.Module):
         # d3 = torch.add(d3, x2)
 
         d2 = F.relu(F.interpolate(self.dbn4(self.decoder4(d3)), scale_factor=(2, 2), mode='bilinear'))
+
         x1 = self.att4(g=d2, x=x1)
         d2 = torch.cat((x1, d2), dim=1)
         d2 = self.Up_conv4(d2)

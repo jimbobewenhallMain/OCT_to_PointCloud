@@ -308,6 +308,7 @@ class UNext(nn.Module):
         out = self.dnorm3(out)
         out = out.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
         out = F.relu(F.interpolate(self.dbn2(self.decoder2(out)), scale_factor=(2, 2), mode='bilinear'))
+
         out = torch.add(out, t3)
         _, _, H, W = out.shape
         out = out.flatten(2).transpose(1, 2)

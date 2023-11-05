@@ -11,6 +11,7 @@ from torch import optim, Tensor
 from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
 from networks.Atten_Unext import AttenUNext
+from networks.UnextThreePlus import UNext
 
 import logging
 from pathlib import Path
@@ -81,7 +82,7 @@ def train_model(
         model,
         device,
         epochs: int = 5,
-        batch_size: int = 15,
+        batch_size: int = 10,
         learning_rate: float = 1e-5,
         val_percent: float = 0.1,
         save_checkpoint: bool = True,
@@ -101,7 +102,7 @@ def train_model(
     train_loader = DataLoader(train_set, shuffle=True, **loader_args)
     val_loader = DataLoader(val_set, shuffle=True, drop_last=True, **loader_args)
 
-    experiment = wandb.init(project='PhD-AttenUnext', resume='allow')
+    experiment = wandb.init(project='PhD-UnextThreePlus', resume='allow')
     experiment.config.update(
         dict(epochs=epochs, batch_size=batch_size, learning_rate=learning_rate,
              val_percent=val_percent, save_checkpoint=save_checkpoint, img_scale=img_scale, amp=amp)
@@ -231,8 +232,8 @@ if __name__ == '__main__':
     #                          encoder_depth=5, decoder_use_batchnorm=True, decoder_channels=(256, 128, 64, 32, 16),
     #                          decoder_attention_type=None, activation=None, aux_params=None)
 
-    model = AttenUNext()
-
+    #model = AttenUNext(drop_rate=0.5, drop_path_rate=0.5)
+    model = UNext(drop_rate=0.5, drop_path_rate=0.5)
     model.to(device=device)
 
     ### Uncomment to continue run
